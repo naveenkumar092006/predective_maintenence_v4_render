@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}Analytics — PredictMaint Pro{% endblock %}
+{% block content %}
+<div class="pm-title mb-4"><i class="bi bi-bar-chart-line text-acc"></i> Analytics Dashboard</div>
+
+<div class="row g-3 mb-4">
+  {% set tc=analytics.maintenance_costs|sum %}
+  {% set tf=analytics.failure_counts|sum %}
+  {% set ad=(analytics.downtime_hours|sum / analytics.downtime_hours|length)|round(1) %}
+  {% for lbl,val,cls in [
+    ('Total Failures (6mo)',tf,'text-dng'),
+    ('Total Maint. Cost','₹'+"{:,}".format(tc),'text-acc'),
+    ('Avg Monthly Downtime',ad|string+' hrs','text-warn'),
+    ('Machines Monitored',predictions|length,'text-acc2'),
+  ] %}
+  <div class="col-6 col-md-3"><div class="pm-met">
+    <div class="val {{ cls }} font-mono" style="font-size:1.5rem">{{ val }}</div>
+    <div class="lbl">{{ lbl }}</div>
+  </div></div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6"><div class="pm-card h-100">
+    <div class="pm-card-head"><i class="bi bi-bar-chart"></i> Monthly Failure Count</div>
+    <canvas id="cFail" height="200"></canvas>
+  </div></div>
+  <div class="col-md-6"><div class="pm-card h-100">
+    <div class="pm-card-head"><i class="bi bi-pie-chart"></i> Failure Type Distribution</div>
+    <canvas id="cType" height="200"></canvas>
+  </div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6"><div class="pm-card h-100">
+    <div class="pm-card-head"><i class="bi bi-graph-up"></i> Maintenance Cost Trend (INR)</div>
+    <canvas id="cCost" height="200"></canvas>
+  </div></div>
+  <div class="col-md-6"><div class="pm-card h-100">
+    <div class="pm-card-head"><i class="bi bi-clock-history"></i> Downtime Trend (Hours)</div>
+    <canvas id="cDown" height="200"></canvas>
+  </div></div>
+</div>
+
+<div class="pm-card mb-3">
+  <div class="pm-card-head"><i class="bi bi-table"></i> Current Machine Health Overview</div>
+  <div class="table-responsive">
+    <table class="pm-tbl">
+      <thead><tr>
+        <th>ID</th><th>Name</th><th>Health</th><th>Risk %</th>
+        <th>RUL</th><th>Failure Type</th><th>Status</th><th>Est. Cost</th>
+      </tr></thead>
+      <tbody>
+        {% for mid,p in predictions.items() %}
+        <tr>
+          <td class="font-mono text-acc">{{ mid }}</td>
+          <td>{{ p.machine_info.name }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="pm-prog" style="width:60px">
+                <div class="pm-bar {{ 'bar-ok' if p.health_score>=60 else 'bar-warn' if p.health_score>=40 else 'bar-crit' }}"
+                     style="width:{{ p.health_score }}%"></div>
+              </div>
+              <span class="font-mono" style="font-size:.78rem">{{ p.health_score }}%</span>
+            </div>
+          </td>
+          <td class="font-mono {{ 'text-dng' if p.failure_probability>60 else 'text-warn' if p.failure_probability>30 else 'text-acc2' }}">
+            {{ p.failure_probability }}%
+          </td>
+          <td class="font-mono {{ 'text-dng' if p.rul_days<10 else 'text-warn' if p.rul_days<20 else 'text-acc2' }}">{{ p.rul_days }}</td>
+          <td class="text-warn">{{ p.failure_type }}</td>
+          <td><span class="st st-{{ p.status|lower }}">● {{ p.status }}</span></td>
+          <td class="font-mono text-acc">₹{{ "{:,}".format(p.cost_estimate.total_estimated) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const mon = {{ analytics.months | tojson }};
+const fc  = {{ analytics.failure_counts | tojson }};
+const mc  = {{ analytics.maintenance_costs | tojson }};
+const dh  = {{ analytics.downtime_hours | tojson }};
+const ft  = {{ analytics.failure_type_distribution | tojson }};
+
+new Chart(document.getElementById('cFail').getContext('2d'),{
+  type:'bar', data:{labels:mon, datasets:[{label:'Failures',data:fc,
+    backgroundColor:'rgba(255,51,85,.6)',borderColor:'#ff3355',borderWidth:1,borderRadius:6}]},
+  options:{responsive:true,plugins:{legend:{display:false}},scales:{y:AX,x:{grid:{display:false}}}}
+});
+
+new Chart(document.getElementById('cType').getContext('2d'),{
+  type:'doughnut',
+  data:{labels:Object.keys(ft), datasets:[{data:Object.values(ft),
+    backgroundColor:['rgba(0,212,255,.7)','rgba(255,170,0,.7)','rgba(200,100,255,.7)','rgba(0,255,136,.7)'],
+    borderColor:'rgba(0,0,0,.3)',borderWidth:2}]},
+  options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:'#aabbcc',padding:14}}}}
+});
+
+new Chart(document.getElementById('cCost').getContext('2d'),{
+  type:'line', data:{labels:mon, datasets:[{...pmDS('Cost','rgb(0,255,136)',mc)}]},
+  options:{responsive:true,plugins:{legend:{display:false}},
+    scales:{y:{...AX,ticks:{callback:v=>'₹'+v.toLocaleString()}},x:{grid:{display:false}}}}
+});
+
+new Chart(document.getElementById('cDown').getContext('2d'),{
+  type:'line', data:{labels:mon, datasets:[{...pmDS('Hours','rgb(255,170,0)',dh)}]},
+  options:{responsive:true,plugins:{legend:{display:false}},scales:{y:AX,x:{grid:{display:false}}}}
+});
+</script>
+{% endblock %}
